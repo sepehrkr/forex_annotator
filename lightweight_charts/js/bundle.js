@@ -1039,7 +1039,212 @@ var Lib = function (t, e) {
     // this.toolBox.saveDrawings();
 
 
+// === Begin CustomMarker Code ===
+class CustomMarkerPaneView extends _ {
+    _source;
+    _point = { x: null, y: null }; // Stores {x, y} screen coordinates
 
+    constructor(source) {
+        super(source);
+        this._source = source;
+    }
+
+    update() {
+        const markerPoint = this._source._point; // This is the {time, logical, price} point
+        const timeScale = this._source.chart.timeScale();
+        const series = this._source.series;
+
+        this._point.x = markerPoint.time ? timeScale.timeToCoordinate(markerPoint.time) : timeScale.logicalToCoordinate(markerPoint.logical);
+        this._point.y = series.priceToCoordinate(markerPoint.price);
+    }
+
+    renderer() {
+        return new CustomMarkerRenderer(this._point, this._source._options, this._source.hovered);
+    }
+}
+
+class CustomMarkerRenderer extends d {
+    _coord; // {x, y} screen coordinates
+    _options;
+    _hovered;
+
+    constructor(coord, options, hovered) {
+        super(options);
+        this._coord = coord;
+        this._options = options; // color, size, shape, text
+        this._hovered = hovered;
+    }
+
+    draw(target) {
+        target.useBitmapCoordinateSpace(scope => {
+            if (this._coord.x === null || this._coord.y === null) return;
+
+            const ctx = scope.context;
+            const x = Math.round(this._coord.x * scope.horizontalPixelRatio);
+            const y = Math.round(this._coord.y * scope.verticalPixelRatio);
+            const size = this._options.size || 10; // Default size
+            const color = this._options.color || '#1E80F0'; // Default color
+            const shape = this._options.shape || 'circle'; // Default shape
+            const text = this._options.text || '';
+
+            ctx.beginPath();
+            ctx.fillStyle = color;
+            ctx.strokeStyle = color; // For shapes that might have borders
+            ctx.lineWidth = 1;
+
+
+            if (shape === 'circle') {
+                ctx.arc(x, y, size / 2, 0, 2 * Math.PI);
+                ctx.fill();
+            } else if (shape === 'square') {
+                ctx.fillRect(x - size / 2, y - size / 2, size, size);
+            } else if (shape === 'arrowUp') {
+                ctx.moveTo(x, y - size / 2);
+                ctx.lineTo(x + size / 2, y + size / 2);
+                ctx.lineTo(x - size / 2, y + size / 2);
+                ctx.closePath();
+                ctx.fill();
+            } else if (shape === 'arrowDown') {
+                ctx.moveTo(x, y + size / 2);
+                ctx.lineTo(x + size / 2, y - size / 2);
+                ctx.lineTo(x - size / 2, y - size / 2);
+                ctx.closePath();
+                ctx.fill();
+            }
+            // Add more shapes as needed
+
+            if (text) {
+                ctx.fillStyle = this._options.textColor || '#FFFFFF'; // Default text color
+                ctx.font = `${this._options.textSize || 12}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.fillText(text, x, y - size / 2 - 5); // Position text above marker
+            }
+
+            if (this._hovered) {
+                ctx.strokeStyle = '#FFFFFF'; // White border when hovered
+                ctx.lineWidth = 1.5;
+                if (shape === 'circle') {
+                    ctx.beginPath();
+                    ctx.arc(x, y, size / 2 + 2, 0, 2 * Math.PI);
+                    ctx.stroke();
+                } else if (shape === 'square') {
+                    ctx.strokeRect(x - size / 2 - 2, y - size / 2 - 2, size + 4, size + 4);
+                }
+                // Add hover effects for other shapes if desired
+            }
+        });
+    }
+}
+
+
+class CustomMarker extends h {
+    _type = "CustomMarker";
+    _point; // {time, logical, price}
+    _paneViews;
+    _hovered = false; // Keep track of hover state for renderer
+
+    constructor(pointData, options) {
+        super(options); // Pass options to base class (h)
+        this._point = pointData; // This is {time, logical, price}
+        this._options = { // Default options merged with provided ones
+            color: '#1E80F0',
+            size: 10,
+            shape: 'circle', // 'square', 'arrowUp', 'arrowDown'
+            text: '',
+            textColor: '#FFFFFF',
+            textSize: 12,
+            ...options // User-provided options override defaults
+        };
+        this._paneViews = [new CustomMarkerPaneView(this)];
+         // Ensure this.points is initialized for compatibility if base class uses it
+        if (!this.points || this.points.length === 0) {
+            this.points.push(this._point);
+        }
+    }
+
+    // Override points getter to ensure it returns the current marker point
+    get points() {
+        return [this._point];
+    }
+
+    updatePoints(pointData) { // pointData is {time, logical, price}
+        if (pointData) {
+            this._point = { ...this._point, ...pointData };
+             // Update the points array if the base class or other logic relies on it
+            if (this.points && this.points.length > 0) {
+                this.points[0] = this._point;
+            } else {
+                this.points.push(this._point);
+            }
+        }
+        this.requestUpdate();
+    }
+
+    applyOptions(options) {
+        super.applyOptions(options); // Apply general options if any (like lineColor from base)
+        this._options = { ...this._options, ...options };
+        this.requestUpdate();
+    }
+
+    _moveToState(newState) {
+        // Simplified state management for a single point object
+        const oldState = this._state;
+        this._state = newState;
+
+        switch (newState) {
+            case l.NONE:
+                document.body.style.cursor = "default";
+                this._hovered = false;
+                this._unsubscribe("mousedown", this._handleMouseDownInteraction);
+                break;
+            case l.HOVERING:
+                document.body.style.cursor = "pointer";
+                this._hovered = true;
+                this._subscribe("mousedown", this._handleMouseDownInteraction);
+                this.chart.applyOptions({ handleScroll: true });
+                break;
+            case l.DRAGGING:
+                document.body.style.cursor = "grabbing";
+                this._subscribe("mouseup", this._handleMouseUpInteraction);
+                this.chart.applyOptions({ handleScroll: false });
+                break;
+        }
+        if (oldState !== newState) {
+            this.requestUpdate(); // Redraw if hover state changed
+        }
+    }
+
+    _onDrag(diff) { // diff is {logical, price}
+        this._addDiffToPoint(this._point, diff.logical, diff.price);
+        this.requestUpdate();
+    }
+
+    _mouseIsOverDrawing(eventParams, tolerance = 8) {
+        if (!eventParams.point || this._paneViews.length === 0) return false;
+
+        const paneView = this._paneViews[0];
+        if (!paneView._point || paneView._point.x === null || paneView._point.y === null) return false;
+
+        // paneView._point holds the screen coordinates {x,y}
+        const markerScreenX = paneView._point.x;
+        const markerScreenY = paneView._point.y;
+
+        const clickScreenX = eventParams.point.x;
+        const clickScreenY = eventParams.point.y;
+
+        const size = (this._options.size || 10) / 2 + tolerance; // Use half size for radius check
+
+        return Math.abs(clickScreenX - markerScreenX) < size && Math.abs(clickScreenY - markerScreenY) < size;
+    }
+
+    _onMouseDown() {
+        this._startDragPoint = null; // Reset start drag point
+        if (this._latestHoverPoint && this._mouseIsOverDrawing(this._latestHoverPoint)) {
+             this._moveToState(l.DRAGGING);
+        }
+    }
+}
+// === End CustomMarker Code ===
 
     class P {
         static TREND_SVG = '<rect x="3.84" y="13.67" transform="matrix(0.7071 -0.7071 0.7071 0.7071 -5.9847 14.4482)" width="21.21" height="1.56"/><path d="M23,3.17L20.17,6L23,8.83L25.83,6L23,3.17z M23,7.41L21.59,6L23,4.59L24.41,6L23,7.41z"/><path d="M6,20.17L3.17,23L6,25.83L8.83,23L6,20.17z M6,24.41L4.59,23L6,21.59L7.41,23L6,24.41z"/>';
@@ -1080,6 +1285,9 @@ var Lib = function (t, e) {
             '<path d="M5 23 L5 5 L14 14 L23 5 L23 23" ' +
             'stroke="#FFFFFF" stroke-width="1.5" fill="none"/>';
 
+        // SVG for CustomMarker: A simple circle target or pin drop style
+        // A simple filled circle as a placeholder. Can be made more complex.
+        static CUSTOM_MARKER_SVG = '<circle cx="14.5" cy="14.5" r="8" fill="currentColor"/>';
 
 
 
@@ -1128,6 +1336,10 @@ var Lib = function (t, e) {
             this.buttons.push(this._makeToolBoxElement(S, "KeyS", P.SAVE_SVG, true));   // save image
             this.buttons.push(this._makeToolBoxElement(S, "KeyN", P.POLY4_SVG));        // 4-dot polyline
             this.buttons.push(this._makeToolBoxElement(S, "KeyW", P.POLY5_SVG));
+
+            // Add CustomMarker button
+            this.buttons.push(this._makeToolBoxElement(CustomMarker, "KeyK", P.CUSTOM_MARKER_SVG)); // Marker Tool
+
             for (const e of this.buttons) t.appendChild(e);
             return t;
         }
@@ -1192,6 +1404,9 @@ var Lib = function (t, e) {
                         break;
                     case "VerticalLine":
                         prim = new B(t.points[0], t.options);
+                        break;
+                    case "CustomMarker": // Add this case
+                        prim = new CustomMarker(t.points[0], t.options);
                         break;
                 }
                 if (!prim) return;

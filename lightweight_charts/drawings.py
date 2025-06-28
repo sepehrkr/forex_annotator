@@ -278,3 +278,110 @@ class VerticalSpan(Pane):
         Irreversibly deletes the vertical span.
         """
         self.run_script(f'{self._chart.id}.chart.removeSeries({self.id})')
+
+
+class Marker(Drawing):
+    def __init__(self, chart, time: TIME, price: NUM,
+                 color: str = '#1E80F0', size: int = 10,
+                 shape: str = 'circle', text: str = '',
+                 func=None):
+        super().__init__(chart, func)
+        self._time = time
+        self._price = price
+        self._options = {
+            'color': color,
+            'size': size,
+            'shape': shape,
+            'text': text,
+            # Add any other relevant options for JS here
+        }
+
+        # Prepare options for JS string (ensure strings are quoted)
+        js_options = {k: f'"{v}"' if isinstance(v, str) else v for k, v in self._options.items()}
+        options_str = ', '.join(f'{snake_to_camel(k)}: {v}' for k, v in js_options.items())
+
+        self.run_script(f'''
+        {self.id} = new Lib.CustomMarker(
+            {make_js_point(self.chart, self._time, self._price)},
+            {{ {options_str} }}
+        );
+        {chart.id}.series.attachPrimitive({self.id});
+        ''')
+        # print(f'''
+        # {self.id} = new Lib.CustomMarker(
+        #     {make_js_point(self.chart, self._time, self._price)},
+        #     {{ {options_str} }}
+        # );
+        # {chart.id}.series.attachPrimitive({self.id});
+        # ''')
+
+
+        if not func:
+            return
+
+        # Simplified callback handling for markers for now
+        # TODO: Potentially expand if complex interactions are needed
+        def wrapper(p_str): # Expects a string like "time_price_otherdata" if needed
+            # For markers, the primary callback might be less about updating position
+            # and more about reacting to a click or modification event.
+            # This part might need refinement based on how callbacks are structured in JS for CustomMarker
+            try:
+                # Example: if JS sends back new price via callback
+                # new_price = float(p_str)
+                # self._price = new_price
+                pass # Placeholder
+            except ValueError:
+                pass # Handle cases where conversion might fail
+            func(chart, self)
+
+        async def wrapper_async(p_str):
+            try:
+                # new_price = float(p_str)
+                # self._price = new_price
+                pass # Placeholder
+            except ValueError:
+                pass
+            await func(chart, self)
+
+        # self.win.handlers[self.id] = wrapper_async if asyncio.iscoroutinefunction(func) else wrapper
+        # self.run_script(f'{chart.id}.toolBox?.addNewDrawing({self.id})') # Might not be needed if added through toolbox click
+
+    def update(self, time: Optional[TIME] = None, price: Optional[NUM] = None):
+        """
+        Moves the marker to the given time and price.
+        """
+        updates = {}
+        if time is not None:
+            self._time = time
+            updates['time'] = self.chart._single_datetime_format(time)
+        if price is not None:
+            self._price = price
+            updates['price'] = price
+
+        if updates:
+            # Need to decide if we send a full point object or just updates
+            # Sending a full point is safer with current JS CustomMarker.updatePoints
+            point_str = make_js_point(self.chart, self._time, self._price)
+            self.run_script(f'{self.id}.updatePoints({point_str})')
+
+    def options(self, color: Optional[str] = None, size: Optional[int] = None,
+                shape: Optional[str] = None, text: Optional[str] = None,
+                **kwargs): # Allow other options
+        """
+        Updates the marker's appearance.
+        """
+        current_opts = {}
+        if color is not None: self._options['color'] = color
+        if size is not None: self._options['size'] = size
+        if shape is not None: self._options['shape'] = shape
+        if text is not None: self._options['text'] = text
+
+        for k,v in kwargs.items(): # For any other options like textColor, textSize
+            self._options[k] = v
+
+        # Prepare options for JS string
+        js_options = {k: f'"{v}"' if isinstance(v, str) else v for k, v in self._options.items()}
+        options_str = ', '.join(f'{snake_to_camel(k)}: {v}' for k, v in js_options.items() if v is not None)
+
+        if options_str:
+            self.run_script(f'{self.id}.applyOptions({{ {options_str} }})')
