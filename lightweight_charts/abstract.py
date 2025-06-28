@@ -8,7 +8,7 @@ import pandas as pd
 
 from .table import Table
 from .toolbox import ToolBox
-from .drawings import Box, HorizontalLine, RayLine, TrendLine, TwoPointDrawing, VerticalLine, VerticalSpan
+from .drawings import Box, HorizontalLine, RayLine, TrendLine, TwoPointDrawing, VerticalLine, VerticalSpan, Marker
 from .topbar import TopBar
 from .util import (
     BulkRunScript, Pane, Events, IDGen, as_enum, jbool, js_json, TIME, NUM, FLOAT,
@@ -365,6 +365,27 @@ class SeriesCommon(Pane):
         text: str = ''
     ) -> VerticalLine:
         return VerticalLine(*locals().values())
+
+    def marker(self, time: TIME, price: NUM,
+               color: str = '#1E80F0', size: int = 10,
+               shape: str = 'circle', text: str = '',
+               func: Optional[Callable] = None) -> 'Marker':
+        """
+        Creates a new Marker drawing on the chart.
+        :param time: Time coordinate for the marker.
+        :param price: Price coordinate for the marker.
+        :param color: Color of the marker.
+        :param size: Size of the marker.
+        :param shape: Shape of the marker ('circle', 'square', 'arrowUp', 'arrowDown').
+        :param text: Optional text to display with the marker.
+        :param func: Optional callback function for interactions.
+        :return: The created Marker object.
+        """
+        # Ensure self._chart refers to the AbstractChart instance
+        # For SeriesCommon, self._chart is the AbstractChart.
+        # For AbstractChart itself, it would be self.
+        chart_instance = self._chart if hasattr(self, '_chart') else self
+        return Marker(chart_instance, time, price, color, size, shape, text, func)
 
     def clear_markers(self):
         """

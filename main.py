@@ -316,8 +316,8 @@ def on_click(chart: Chart, time, price):
                 marker_shape = "square"
                 marker_size = 8
 
-            marker_obj = chart.drawing(
-                dtype='marker',
+            # Call the new chart.marker() method
+            marker_obj = chart.marker(
                 time=dt_object,
                 price=price,
                 color=marker_color,
